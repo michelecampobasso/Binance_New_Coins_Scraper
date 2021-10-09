@@ -107,7 +107,6 @@ def get_Pair_and_DateTime(ARTICLE_CODE):
         datetime = dparser.parse(new_Coin, fuzzy=True, ignoretz=True)
         raw_pairs = re.findall(regex, new_Coin)
         for pair in raw_pairs:
-            print("===="+ pair)
             if not pair.split('/')[0] in existing_coins:
                 pairs.append(pair.replace('/', ''))
         return [datetime, pairs]        
