@@ -25,23 +25,13 @@ executed_trades_file = 'res/executed_trades.json'
 executed_sells_file = 'res/executed_sells_trades.json'
 coins_file = 'res/existing_coins.json'
 
-pair_Dict = {}
+
 existing_coins = []
 executed_queque = []
 current_buy_threads = []
 
-telegram_status = True
-
-telegram_keys= []
-
-if os.path.exists('conf/telegram.yml'):
-    telegram_keys = load_config('conf/telegram.yml')
-else: 
-    telegram_status = False
-
 cnf = load_config('conf/config.yml')
 client = load_binance_creds(r'conf/auth.yml')
-
 
 tsl_mode = cnf['TRADE_OPTIONS']['ENABLE_TSL']
 
@@ -62,12 +52,6 @@ delay_mode = cnf['TRADE_OPTIONS']['CONSIDER_DELAY']
 percentage = cnf['TRADE_OPTIONS']['PERCENTAGE']
 
 regex = '\S{2,6}?/'+ pairing
-
-
-def sendmsg(message):
-    print(message)
-    if telegram_status:
-        threading.Thread(target=telegram_bot_sendtext, args=(message,)).start()
 
 
 def ping_binance():
