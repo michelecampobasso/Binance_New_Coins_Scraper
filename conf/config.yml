@@ -1,8 +1,7 @@
 ---
   TRADE_OPTIONS:
     QUANTITY: 50
-    PAIRING: USDT
-    # How often to check for posts in seconds
+    PAIRING: USDT # How often to check for posts in seconds
     RUN_EVERY: 600
     TEST: True
     SL: 1

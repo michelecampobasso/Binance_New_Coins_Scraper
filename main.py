@@ -5,12 +5,12 @@ import json
 import requests
 import threading
 import traceback
-from json_manage import *
-from binance_key import *
-from config import *
+from utils.json_manage import *
+from utils.binance_key import *
+from utils.config import *
+from utils.telegram_lib import *
 from datetime import datetime, timedelta
 import dateutil.parser as dparser
-
 
 
 ARTICLES_URL = 'https://www.binance.com/bapi/composite/v1/public/cms/article/catalog/list/query?catalogId=48&pageNo=1&pageSize=15'
@@ -19,81 +19,28 @@ ARTICLE      = 'https://www.binance.com/bapi/composite/v1/public/cms/article/det
 key_words = ['Futures', 'Isolated', 'Margin', 'Launchpool', 'Launchpad', 'Cross', 'Perpetual']
 filter_List = ['body', 'type', 'catalogId', 'catalogName', 'publishDate']
 
-file = 'announcements.json'
-schedules_file = 'scheduled_order.json'
-executed_trades_file = 'executed_trades.json'
-executed_sells_file = 'executed_sells_trades.json'
-coins_file = 'existing_coins.json'
+file = 'res/announcements.json'
+schedules_file = 'res/scheduled_order.json'
+executed_trades_file = 'res/executed_trades.json'
+executed_sells_file = 'res/executed_sells_trades.json'
+coins_file = 'res/existing_coins.json'
 
 pair_Dict = {}
 existing_coins = []
 executed_queque = []
 current_buy_threads = []
 
-cnf = load_config('config.yml')
-client = load_binance_creds(r'auth.yml')
-
 telegram_status = True
 
-telegram_keys=[]
+telegram_keys= []
 
-if os.path.exists('telegram.yml'):
-    telegram_keys = load_config('telegram.yml')
+if os.path.exists('conf/telegram.yml'):
+    telegram_keys = load_config('conf/telegram.yml')
+else: 
+    telegram_status = False
 
-else: telegram_status = False
-
-
-def telegram_bot_sendtext(bot_message):
-
-    send_text = 'https://api.telegram.org/bot' + str(telegram_keys['telegram_key']) + '/sendMessage?chat_id=' + str(telegram_keys['chat_id']) + '&parse_mode=Markdown&text=' + bot_message
-    response = requests.get(send_text)
-    return response.json()['result']['message_id']
-
-def telegram_delete_message(message_id):
-
-    send_text = 'https://api.telegram.org/bot' + str(telegram_keys['telegram_key']) + '/deleteMessage?chat_id=' + str(telegram_keys['chat_id']) + '&message_id=' + str(message_id)
-
-    requests.get(send_text)
-
-
-class Send_Without_Spamming():
-    
-    def __init__(self):
-        self.id = 0000
-        self.first = True
-    
-    def send(self, message):
-        if telegram_status:
-            if self.first:
-                self.first = False
-                self.id = telegram_bot_sendtext(message)
-            else:
-                telegram_delete_message(self.id)
-                self.id = telegram_bot_sendtext(message)
-        else:
-            print(message)
-        
-    def kill(self, pair):
-        if telegram_status:
-            telegram_delete_message(self.id)
-            del pair_Dict[pair] 
-
-
-def killSpam(pair):
-    try:
-        pair_Dict[pair].kill(pair)
-    except Exception:
-        pass
-        
-
-
-def sendSpam(pair, message):
-    try:
-        pair_Dict[pair].send(message)
-    except Exception:
-        pair_Dict[pair] = Send_Without_Spamming()
-        pair_Dict[pair].send(message)
-
+cnf = load_config('conf/config.yml')
+client = load_binance_creds(r'conf/auth.yml')
 
 
 tsl_mode = cnf['TRADE_OPTIONS']['ENABLE_TSL']
@@ -106,7 +53,6 @@ else:
     tp = cnf['TRADE_OPTIONS']['TP']
     sl = cnf['TRADE_OPTIONS']['SL']
 
-
 pairing = cnf['TRADE_OPTIONS']['PAIRING']
 ammount = cnf['TRADE_OPTIONS']['QUANTITY']
 frequency = cnf['TRADE_OPTIONS']['RUN_EVERY']
@@ -116,6 +62,7 @@ delay_mode = cnf['TRADE_OPTIONS']['CONSIDER_DELAY']
 percentage = cnf['TRADE_OPTIONS']['PERCENTAGE']
 
 regex = '\S{2,6}?/'+ pairing
+
 
 def sendmsg(message):
     print(message)
@@ -159,8 +106,7 @@ def get_Announcements():
             if word in article['title']:
                 flag = False
         if flag:
-            articles.append(article)
-                
+            articles.append(article)        
 
     for article in articles:
         for undesired_Data in filter_List:
@@ -177,12 +123,13 @@ def get_Pair_and_DateTime(ARTICLE_CODE):
         datetime = dparser.parse(new_Coin, fuzzy=True, ignoretz=True)
         raw_pairs = re.findall(regex, new_Coin)
         for pair in raw_pairs:
+            print("===="+ pair)
             if not pair.split('/')[0] in existing_coins:
                 pairs.append(pair.replace('/', ''))
         return [datetime, pairs]        
     except Exception as e:
-        sendmsg("[!] The article with url " + ARTICLE + ARTICLE_CODE + " and description " + new_Coin + " couldn't be parsed successfully.")
-        sendmsg("Error log: {e}")
+        sendmsg("[WARNING] The article with url " + ARTICLE + ARTICLE_CODE + " and description " + new_Coin + " couldn't be parsed successfully.")
+        sendmsg(f"Error log: {str(e)}")
         return None
 
 ####orders
@@ -231,7 +178,7 @@ def schedule_Order(time_And_Pair, announcement):
     try:
         scheduled_order = {'time':time_And_Pair[0].strftime("%Y-%m-%d %H:%M:%S"), 'pairs':time_And_Pair[1]}
 
-        sendmsg(f'Scheduled an order for: {time_And_Pair[1]} at: {time_And_Pair[0]}')
+        sendmsg(f'[SCHEDULER] Scheduled an order for {time_And_Pair[1]} at {time_And_Pair[0]}.')
         update_json(schedules_file, scheduled_order)
         update_json(file, announcement)
     except Exception as exception:       
@@ -244,12 +191,12 @@ def place_Order_On_Time(time_till_live, pair, threads):
     global executed_queque
     try:
         if pair in current_buy_threads:
-            sendmsg(f'{pair} already on a thread')
+            sendmsg(f'[SCHEDULER] {pair} already on a thread.')
             return
         else:
             current_buy_threads.append(pair)
 
-        sendmsg(f'Thread created to buy : {pair} at: {time_till_live}, now goin to sleep till its time to buy')
+        sendmsg(f'[SCHEDULER] Thread created to buy {pair} at {time_till_live}. Sleep until then.')
         if delay_mode:
             delay = (ping_binance() * percentage)
             time_till_live = (time_till_live - timedelta(seconds = delay))
@@ -313,7 +260,7 @@ def check_Schedules():
 
                     for pair in schedule['pairs']:
                         threading.Thread(target=place_Order_On_Time, args=(datetime, pair, threading.active_count() + 1)).start()
-                        sendmsg(f'Found scheduled order for: {pair} at: {datetime} adding it to new thread')
+                        sendmsg(f'[SCHEDULER] Found scheduled order for {pair} at {datetime}. Queued.')
             save_json(schedules_file, schedules)
     except Exception as exception:       
         wrong = traceback.format_exc(limit=None, chain=True)
@@ -354,7 +301,7 @@ def sell():
                         not_sold_orders.append(coin)
                         flag_update = True
 
-                        threading.Thread(target=sendSpam, args=(symbol, f'Updated tp: {round(new_tp, 3)} and sl: {round(new_sl, 3)} for: {symbol}')).start()
+                        threading.Thread(target=sendSpam, args=(symbol, f'[TRADING] Updated TP: {round(new_tp, 3)} and SL: {round(new_sl, 3)} for {symbol}')).start()
                     # close trade if tsl is reached or trail option is not enabled
                     elif float(last_price) < coin_sl or float(last_price) > coin_tp:
                         try:
@@ -364,7 +311,7 @@ def sell():
                                 sell = client.create_order(symbol = symbol, side = 'SELL', type = 'MARKET', quantity = volume, recvWindow = "10000")
 
 
-                            sendmsg(f"Sold {symbol} at {(float(last_price) - stored_price) / float(stored_price)*100}")
+                            sendmsg(f"[TRADING] Sold {symbol} at {(float(last_price) - stored_price) / float(stored_price)*100}.")
                             killSpam(symbol)
                             flag_update = True
                             # remove order from json file by not adding it
@@ -394,7 +341,6 @@ def sell():
                                             }
                                 sold_coins.append(sell)
                             save_json(executed_sells_file, sold_coins)
-
                     else:
                         not_sold_orders.append(coin)
                     if flag_update: save_json(executed_trades_file, not_sold_orders)
@@ -404,24 +350,27 @@ def sell():
         time.sleep(0.2)
 
 
+def parse_announcement(announcement):
+    time_And_Pair = get_Pair_and_DateTime(announcement['code'])
+    if time_And_Pair is not None:
+        if time_And_Pair[0] >= datetime.utcnow() and len(time_And_Pair[1]) > 0:
+            schedule_Order(time_And_Pair, announcement)
+            for pair in time_And_Pair[1]:
+                threading.Thread(target=place_Order_On_Time, args=(time_And_Pair[0], pair, threading.active_count() + 1)).start()
+                sendmsg(f'[ANNOUNCEMENT] Found new announcement! Preparing schedule for: {pair}')
+                existing_coins.append(re.sub( pairing, '', pair))
+            save_json(coins_file, existing_coins)
+
+
 def main():
     getAllExistingCoins()
 
     if os.path.exists(file):
         existing_Anouncements = load_json(file)
-
     else:
         existing_Anouncements = get_Announcements()
         for announcement in existing_Anouncements:
-            time_And_Pair = get_Pair_and_DateTime(announcement['code'])
-            if time_And_Pair is not None:
-                if time_And_Pair[0] >= datetime.utcnow() and len(time_And_Pair[1]) > 0:
-                    schedule_Order(time_And_Pair, announcement)
-                    for pair in time_And_Pair[1]:
-                        threading.Thread(target=place_Order_On_Time, args=(time_And_Pair[0], pair, threading.active_count() + 1)).start()
-                        sendmsg(f'Found new announcement preparing schedule for: {pair}')
-                        existing_coins.append(re.sub( pairing, '', pair))
-                    save_json(coins_file, existing_coins)
+            parse_announcement(announcement)
         save_json(file, existing_Anouncements)
 
     threading.Thread(target=check_Schedules, args=()).start()
@@ -433,19 +382,11 @@ def main():
         
         for announcement in new_Anouncements:
             if not announcement in existing_Anouncements:
-                time_And_Pair = get_Pair_and_DateTime(announcement['code'])
-                if time_And_Pair is not None:
-                    if time_And_Pair[0] >= datetime.utcnow():
-                        schedule_Order(time_And_Pair, announcement)
-                        for pair in time_And_Pair[1]:
-                            threading.Thread(target=place_Order_On_Time, args=(time_And_Pair[0], pair, threading.active_count() + 1)).start()
-                            sendmsg(f'Found new announcement preparing schedule for {pair}')
-                            existing_coins.append(re.sub( pairing, '', pair))
-                        save_json(coins_file, existing_coins)
+                parse_announcement(announcement)
                 existing_Anouncements = load_json(file)
         
-        threading.Thread(target=sendSpam, args=("sleep", f'Done checking announcements going to sleep for: {frequency} seconds&disable_notification=true')).start()
-        threading.Thread(target=sendSpam, args=("ping", f'Current Average delay: {ping_binance()}&disable_notification=true')).start()
+        threading.Thread(target=sendSpam, args=("sleep", f'[[INFO]] Done checking announcements. Next check in {frequency} seconds.&disable_notification=true')).start()
+        threading.Thread(target=sendSpam, args=("ping", f'[[INFO]] Current average delay: {round(ping_binance()*1000, 2)} ms.&disable_notification=true')).start()
         time.sleep(frequency)
 
 
@@ -456,10 +397,12 @@ def main():
 if __name__ == '__main__':
     try:
         if not test_mode:
-            sendmsg('Warning runnig it on live mode')
-        sendmsg('starting')
-        sendmsg(f'Aproximate delay: {ping_binance()}')
+            sendmsg('[[WARNING]] Running on live mode!')
+        sendmsg('[[INFO]] Binance bot starting...')
+        sendmsg(f'[[INFO]] Approximate delay: {round(ping_binance()*1000, 2)} ms.')
         main()
     except Exception as exception:
         wrong = traceback.format_exc(limit=None, chain=True)
         sendmsg(wrong)
+
+
