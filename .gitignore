@@ -11,3 +11,4 @@ res/existing_coins.json
 res/scheduled_order.json
 res/executed_trades.json
 res/executed_sells_trades.json
+nohup.out

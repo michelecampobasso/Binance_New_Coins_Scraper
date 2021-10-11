@@ -126,7 +126,22 @@ def avFills(order):
     return prices / qty
 
 def get_price(coin):
-     return client.get_ticker(symbol=coin)['lastPrice']
+    count = 0
+    while count < 10:
+        try:
+            return client.get_ticker(symbol=coin)['lastPrice']
+        except BinanceAPIException as e:
+            sendmsg(f"Error log: {str(e)}")
+            count+=1
+    sleep(1)
+    count = 0
+    while count < 10:
+        try:
+            return client.get_ticker(symbol=coin)['lastPrice']
+        except BinanceAPIException as e:
+            sendmsg(f"Error log: {str(e)}")
+            count+=1
+    sendmsg("dude, I waited even 1 second. wtf.")
 
 def create_order(pair, usdt_to_spend, action):
     try:
@@ -265,7 +280,8 @@ def sell():
                     stored_price = float(coin['price'])
                     coin_tp = coin['tp']
                     coin_sl = coin['sl']
-                    volume = coin['executedQty']
+                    coin_bought = coin['fills'][0]['commissionAsset']
+                    volume = client.get_asset_balance(asset=coin_bought)['free']
                     symbol = coin['symbol']
 
                     last_price = get_price(symbol)
